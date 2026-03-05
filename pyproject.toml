@@ -1,0 +1,14 @@
+[project]
+name = "evaluation-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.135.0",
+    "httpx>=0.28.1",
+    "langchain-groq>=1.1.2",
+    "langgraph>=1.0.10",
+    "pydantic-settings>=2.13.1",
+    "uvicorn>=0.41.0",
+]
