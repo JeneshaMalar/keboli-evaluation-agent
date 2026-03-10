@@ -26,4 +26,17 @@ class KeboliClient:
             response.raise_for_status()
             return response.json()
 
+    async def post_log(self, log_data: dict):
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    f"{self.base_url}/logs/",
+                    json=log_data
+                )
+                response.raise_for_status()
+                return response.json()
+            except Exception as e:
+                print(f"Failed to post log to backend: {e}")
+                return None
+
 keboli_client = KeboliClient()

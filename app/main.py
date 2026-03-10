@@ -8,6 +8,15 @@ app = FastAPI(title="Keboli Evaluation Agent", version="1.0.0")
 @app.post("/api/v1/evaluate/{session_id}")
 async def evaluate_candidate(session_id: str):
     try:
+        await keboli_client.post_log({
+            "level": "INFO",
+            "service": "evaluation_agent",
+            "component": "evaluation",
+            "event_type": "evaluation_started",
+            "session_id": session_id,
+            "message": f"Starting evaluation for session {session_id}"
+        })
+        
         transcript_data = await keboli_client.get_transcript(session_id)
         session_details = await keboli_client.get_session_details(session_id)
         
@@ -38,10 +47,8 @@ async def evaluate_candidate(session_id: str):
         
         scale = 20.0
         
-        # Extract per-skill scores (0-100 format) for admin display
         per_skill_scores = result.get("per_skill_scores", {})
         
-        # Extract enhanced sub-scores
         scores = result.get("scores", {})
         comm_sub_scores = scores.get("communication_sub_scores", {})
         behavioral_rubric = scores.get("behavioral_rubric", {})
@@ -59,11 +66,8 @@ async def evaluate_candidate(session_id: str):
                 "cultural_fit": scores.get("cultural_fit", 0),
                 "tie_breaker": float(result.get("tie_breaker_subscore", 0.0)),
                 "skill_evaluations": result.get("skill_scores", {}),
-                # Per-skill scores in admin-friendly format: {"React": 65, "SQL": 40, ...}
                 "per_skill_scores": per_skill_scores,
-                # Enhanced communication sub-scores
                 "communication_details": comm_sub_scores,
-                # Behavioral rubric dimension scores
                 "behavioral_rubric": behavioral_rubric,
             },
             "ai_summary": result["summary"],
@@ -83,6 +87,19 @@ async def evaluate_candidate(session_id: str):
         
         print(f"Pushing evaluation for session {session_id}: {recommendation}")
         print(f"Per-skill scores: {per_skill_scores}")
+        
+        await keboli_client.post_log({
+            "level": "INFO",
+            "service": "evaluation_agent",
+            "component": "evaluation",
+            "event_type": "evaluation_completed",
+            "session_id": session_id,
+            "message": f"Completed evaluation for session {session_id}",
+            "details": {
+                "recommendation": recommendation, 
+                "total_score": float(scores.get("total", 0)) * scale
+            }
+        })
         try:
             resp = await keboli_client.post_evaluation(session_id, evaluation_payload)
             print("Successfully posted evaluation to backend.")
@@ -94,6 +111,15 @@ async def evaluate_candidate(session_id: str):
             raise api_err
         
     except Exception as e:
+        await keboli_client.post_log({
+            "level": "ERROR",
+            "service": "evaluation_agent",
+            "component": "evaluation",
+            "event_type": "evaluation_failed",
+            "session_id": session_id,
+            "message": f"Evaluation failed for session {session_id}: {str(e)}",
+            "error_stack": str(e)
+        })
         print(f"Evaluation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
