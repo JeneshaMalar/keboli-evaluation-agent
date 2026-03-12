@@ -7,7 +7,37 @@ Your evaluation must go beyond simple keyword matching — you must assess true 
 skill transferability, and depth of understanding using the comprehensive frameworks below.
 
 # ══════════════════════════════════════════════════════════════════════════
-# STEP 0: SKILL INTERCHANGEABILITY MATRIX (Apply BEFORE scoring each skill)
+# STEP 0: INTERVIEW VALIDITY GATE (Run this FIRST before ANY scoring)
+# ══════════════════════════════════════════════════════════════════════════
+
+Before performing any technical evaluation, you MUST assess whether a real interview took place.
+
+## Validity Check Procedure:
+1. Read through the ENTIRE transcript.
+2. Count the number of candidate responses that satisfy BOTH conditions:
+   (a) The response directly answers a technical or behavioral question asked by the interviewer.
+   (b) The response contains at least 10 meaningful words related to the question topic.
+3. Record this count as `valid_response_count`.
+
+## Validity Decision:
+- If `valid_response_count` < 2:
+  → The interview is INVALID. The candidate did not meaningfully participate.
+  → Set `interview_validity` = "INVALID_INTERVIEW"
+  → Set ALL skill scores (relevance_score, depth_score, score) to 0.0 for every skill
+  → Set all `evaluation_status` = "invalid_interview"
+  → Set `evaluation_confidence` = "high"
+  → Set `technical_summary` = "Candidate did not meaningfully participate in the interview. 
+    Fewer than 2 valid on-topic responses were detected."
+  → Populate the JSON output with zeroed scores and STOP. Do not apply any scoring rubric.
+
+- If `valid_response_count` >= 2:
+  → The interview is VALID. Proceed with the full evaluation below.
+  → Set `interview_validity` = "VALID"
+
+You MUST include `interview_validity` and `valid_response_count` in your JSON output.
+
+# ══════════════════════════════════════════════════════════════════════════
+# STEP 1: SKILL INTERCHANGEABILITY MATRIX (Apply BEFORE scoring each skill)
 # ══════════════════════════════════════════════════════════════════════════
 
 Evaluate technical skills using the 2026 Interchangeability Matrix.
@@ -301,6 +331,15 @@ Then fine-tune ±0.5 based on:
 15. COMPOSITE GATE: If relevance_score < 1.5, composite score is capped at 1.5 — apply this before the formula
 16. PARTIAL EQUIVALENCE OVERRIDE: Always check the partial equivalences table before applying the Tier 2 20% cap.
     If the skill pair is listed in the table, use the table's specified credit — it OVERRIDES the 20% cap.
+17. OFF-TOPIC RESPONSE PENALTY: If the candidate's response does not address the question topic at all
+    (i.e., they talk about something completely unrelated such as interview logistics,
+    technical issues, connectivity problems, or random unrelated content), treat this as:
+    - relevance_score = 0.0
+    - depth_score = 0.0
+    - composite score = 0.0
+    This is DIFFERENT from "I don't know" (which gets 0.0-1.0). An off-topic response means the
+    candidate did not attempt to engage with the question AT ALL. Do not give partial credit for
+    off-topic responses — they are equivalent to a blank answer.
 
 
 # SKILL GRAPH (skills to evaluate with their weights):
@@ -311,9 +350,11 @@ Then fine-tune ±0.5 based on:
 
 # OUTPUT FORMAT (JSON only):
 {{
+    "interview_validity": "<VALID|INVALID_INTERVIEW>",
+    "valid_response_count": <integer>,
     "skill_evaluations": {{
         "<exact_skill_name_from_graph>": {{
-            "evaluation_status": "<evaluated|not_evaluated>",
+            "evaluation_status": "<evaluated|not_evaluated|invalid_interview>",
             "relevance_score": <float 0.0-5.0 | null if not_evaluated>,
             "depth_score": <float 0.0-5.0 | null if not_evaluated>,
             "score": <float 0.0-5.0 | null if not_evaluated>,
@@ -363,6 +404,40 @@ Then fine-tune ±0.5 based on:
     def get_communication_prompt(transcript: str) -> str:
         return f"""
 You are an expert HR communication and behavioral assessor. Evaluate the candidate's communication clarity and confidence based ONLY on explicit evidence from the transcript.
+
+# ══════════════════════════════════════════════════════════════════════════
+# STEP 0: PARTICIPATION CHECK (Run this FIRST before any scoring)
+# ══════════════════════════════════════════════════════════════════════════
+
+Before applying any scoring rubric, you MUST assess whether the candidate actually
+participated in the interview in a meaningful way.
+
+## Participation Check Procedure:
+1. Count the total number of candidate responses that are ON-TOPIC — i.e., they are
+   directly responding to an interview question about a technical or behavioral topic.
+2. Exclude responses that are purely about interview logistics, connectivity issues,
+   greetings, or completely unrelated content.
+3. Record this count as `on_topic_response_count`.
+
+## Participation Decision:
+- If `on_topic_response_count` < 2:
+  → The candidate did NOT meaningfully engage with the interview questions.
+  → Set `interview_participated` = false
+  → Set `communication_score` = 0.1
+  → Set `clarity_subscore` = 0.1
+  → Set `articulation_subscore` = 0.1
+  → Set `structure_subscore` = 0.1
+  → Set `confidence_score` = 0.1
+  → Set `communication_justification` = "Candidate did not engage with interview questions.
+    Fewer than 2 on-topic responses detected. Insufficient data to apply normal rubric."
+  → Set `confidence_justification` = "Candidate did not engage with interview questions.
+    Insufficient data to assess confidence."
+  → Populate the rest of the JSON output with zeroed/minimal values and STOP.
+    Do NOT apply the normal scoring rubric below.
+
+- If `on_topic_response_count` >= 2:
+  → The candidate participated. Set `interview_participated` = true.
+  → Proceed with the full evaluation below.
 
 # STEP 1: FILLER WORD ANALYSIS
 Scan the ENTIRE transcript for these filler words/phrases used by the CANDIDATE (not the interviewer):
@@ -422,12 +497,17 @@ Calculate hedging_ratio = hedging_count / (hedging_count + assertive_count)
 5. Assess average answer LENGTH — consistently short (<10 words) answers = low communication
 6. Do NOT confuse technical knowledge with communication skill
 7. A candidate can be technically wrong but still communicate clearly (and vice versa)
+8. If the candidate's responses are entirely off-topic (discussing unrelated content, logistics,
+   connectivity issues, etc.), do NOT give baseline communication scores for "clear speech" —
+   the content must be interview-relevant to be evaluated for communication quality.
 
 # TRANSCRIPT:
 {transcript}
 
 # OUTPUT (JSON only):
 {{
+    "interview_participated": <true|false>,
+    "on_topic_response_count": <integer>,
     "communication_score": <float 0.0-5.0>,
     "clarity_subscore": <float 0.0-5.0>,
     "articulation_subscore": <float 0.0-5.0>,
@@ -454,6 +534,38 @@ Calculate hedging_ratio = hedging_count / (hedging_count + assertive_count)
     def get_cultural_fit_prompt(transcript: str, job_description: str = "") -> str:
         return f"""
 You are a company culture specialist and behavioral interview assessor. Evaluate the candidate's cultural alignment and professional attitude using a structured Behavioral Rubric, based ONLY on evidence from the transcript.
+
+# ══════════════════════════════════════════════════════════════════════════
+# STEP 0: CULTURAL PARTICIPATION CHECK (Run this FIRST before any scoring)
+# ══════════════════════════════════════════════════════════════════════════
+
+Before applying any cultural/behavioral rubric, you MUST assess whether the candidate
+provided enough culturally relevant content to evaluate.
+
+## Cultural Participation Check Procedure:
+1. Count the candidate responses that contain ANY culturally relevant content:
+   behavioral stories, descriptions of past work, team interactions, values,
+   growth experiences, or professional attitude signals.
+2. Exclude responses that are purely technical one-word answers, logistics,
+   greetings, or completely off-topic content.
+3. Record this count as `cultural_response_count`.
+
+## Cultural Participation Decision:
+- If `cultural_response_count` < 2:
+  → The candidate did NOT provide enough cultural/behavioral evidence.
+  → Set `cultural_participated` = false
+  → Set `cultural_fit_score` = 0.0
+  → Set ALL behavioral_rubric dimension scores to 0.0
+  → Set `engagement_level` = "none"
+  → Set `cultural_fit_justification` = "Candidate did not provide any meaningful
+    cultural or behavioral evidence during the interview. All dimension scores
+    set to 0.0 due to lack of participation."
+  → Populate the rest of the JSON output with zeroed values and STOP.
+    Do NOT apply the normal cultural scoring rubric.
+
+- If `cultural_response_count` >= 2:
+  → Set `cultural_participated` = true.
+  → Proceed with the full evaluation below.
 
 # BEHAVIORAL RUBRIC DIMENSIONS:
 Evaluate the candidate across these five core value dimensions. For each dimension, look for keywords, situational evidence, and behavioral indicators in their stories and responses.
@@ -506,7 +618,8 @@ Look for evidence of:
 Keywords: "honestly", "transparent", "I don't know but", "the right thing to do"
 
 # OVERALL CULTURAL FIT SCORING RUBRIC (0-5 scale):
-- 0.0-1.0: Negative attitude, dismissive, unprofessional behavior, red flags in multiple dimensions
+- 0.0-1.0: Negative attitude, dismissive, unprofessional behavior, red flags in multiple dimensions,
+  OR candidate did not participate / provided no cultural evidence
 - 1.5-2.0: Neutral/minimal engagement. No negative signals but no positive ones either. Scores <2 on most dimensions
 - 2.5-3.0: Adequate. Shows basic professionalism. Scores 2-3 on most dimensions. Limited behavioral evidence
 - 3.5-4.0: Good. Demonstrates enthusiasm, collaborative mindset, growth orientation. Scores 3-4 on multiple dimensions
@@ -518,8 +631,15 @@ Keywords: "honestly", "transparent", "I don't know but", "the right thing to do"
 3. Do NOT inflate cultural fit just because the candidate was polite — politeness is baseline
 4. Look for: enthusiasm about the role, questions asked, growth mindset indicators, STAR-method stories
 5. Cite specific examples from the transcript for EACH dimension
-6. If no evidence exists for a dimension, score it 2.5 (neutral) and note "Insufficient evidence"
+6. If no evidence exists for a dimension AND the interview is otherwise valid (cultural_participated = true),
+   score it 0.5 (absent) and note "No evidence found for this dimension."
+   Do NOT use 2.5 (neutral) — neutral implies there WAS an interview but signals are unclear.
+   A score of 0.5 means the dimension was simply not demonstrated.
+   Only use 2.0-2.5 (neutral) if the candidate DID discuss relevant topics but the cultural
+   signals within those responses are ambiguous or mixed.
 7. The overall cultural_fit_score should be a weighted average of the 5 dimensions
+8. If the candidate's responses are entirely off-topic or the interview did not happen,
+   ALL dimension scores MUST be 0.0 — do not award any baseline score for mere presence.
 
 # JOB DESCRIPTION (for context on expected values):
 {job_description if job_description else "Not provided — use general professional values"}
@@ -529,6 +649,8 @@ Keywords: "honestly", "transparent", "I don't know but", "the right thing to do"
 
 # OUTPUT (JSON only):
 {{
+    "cultural_participated": <true|false>,
+    "cultural_response_count": <integer>,
     "cultural_fit_score": <float 0.0-5.0>,
     "behavioral_rubric": {{
         "ownership": {{
@@ -559,7 +681,7 @@ Keywords: "honestly", "transparent", "I don't know but", "the right thing to do"
     }},
     "cultural_fit_evidence": ["<top supporting quotes across all dimensions>"],
     "cultural_fit_justification": "<rubric-based explanation referencing dimension scores>",
-    "engagement_level": "<low|moderate|high>",
+    "engagement_level": "<none|low|moderate|high>",
     "red_flags": ["<any concerning behavioral patterns>"],
     "star_stories_detected": <integer count of STAR-method stories found>,
     "dimension_summary": "<brief summary of strongest and weakest cultural dimensions>"
@@ -570,6 +692,33 @@ Keywords: "honestly", "transparent", "I don't know but", "the right thing to do"
     def get_final_synthesis_prompt(tech, comm, culture, transcript, total_score, coverage_ratio, passing_score):
         return f"""
 You are a strict but fair hiring decision maker. Your recommendation MUST align with the numeric evidence.
+
+# ══════════════════════════════════════════════════════════════════════════
+# PRE-CHECK: INTERVIEW VALIDITY & COVERAGE OVERRIDE
+# ══════════════════════════════════════════════════════════════════════════
+
+Before applying ANY scoring guidelines, check these two conditions:
+
+## Check 1 — Interview Validity:
+Examine the Technical Analysis for `interview_validity`. If it is "INVALID_INTERVIEW":
+  → Set recommendation = "REJECT"
+  → Set `interview_was_valid` = false
+  → In your summary, state: "Interview invalid — candidate did not meaningfully participate."
+  → Set `override_reason` = "INVALID_INTERVIEW"
+  → Set `displayed_scores_zeroed` = true
+  → STOP. Do not apply score-based guidelines.
+
+## Check 2 — Coverage Ratio Override:
+If Coverage Ratio < 0.5:
+  → Set recommendation = "REJECT"
+  → Set `override_reason` = "INSUFFICIENT_COVERAGE"
+  → Set `displayed_scores_zeroed` = true
+  → In your summary, note that fewer than 50% of required skills were evaluated,
+    making the assessment unreliable. ALL component scores should be treated as
+    unreliable and effectively zero for decision-making purposes.
+  → STOP. Do not apply score-based guidelines.
+
+If neither condition triggers, set `interview_was_valid` = true and proceed normally.
 
 # DECISION FRAMEWORK:
 
@@ -618,14 +767,19 @@ If ANY of the above is NO → decision must be REJECT.
 {transcript}
 
 # YOUR TASK:
-1. Review ALL evidence and metrics
-2. Verify your recommendation aligns with the score ranges above
-3. For borderline scores (55-64), explicitly complete the Decision Checklist above
-4. Write a concise, evidence-based summary
-5. Explain your reasoning citing specific transcript evidence
+1. Run the Pre-Check (Interview Validity & Coverage Override) FIRST
+2. If pre-check triggers, output the rejection immediately with zeroed context
+3. Otherwise, review ALL evidence and metrics
+4. Verify your recommendation aligns with the score ranges above
+5. For borderline scores (55-64), explicitly complete the Decision Checklist above
+6. Write a concise, evidence-based summary
+7. Explain your reasoning citing specific transcript evidence
 
 # OUTPUT (JSON only):
 {{
+    "interview_was_valid": <true|false>,
+    "override_reason": "<INVALID_INTERVIEW|INSUFFICIENT_COVERAGE|null>",
+    "displayed_scores_zeroed": <true|false>,
     "summary": "<3-4 sentence executive summary covering strengths and weaknesses>",
     "explanation": "<detailed justification referencing specific transcript evidence and scores>",
     "recommendation": "<STRONG_HIRE|HIRE|REJECT>",

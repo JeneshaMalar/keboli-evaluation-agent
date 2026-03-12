@@ -94,7 +94,10 @@ async def analyze_technical_node(state: EvaluationState):
     
     data = extract_json(resp.content)
     if data and "skill_evaluations" in data:
-        # Log multi-layer scores for debugging
+        interview_validity = data.get('interview_validity', 'VALID')
+        if interview_validity == 'INVALID_INTERVIEW':
+            print(f"[EVAL TECH] INVALID INTERVIEW DETECTED — valid_response_count: {data.get('valid_response_count', 0)}")
+        
         for skill_name, skill_data in data["skill_evaluations"].items():
             relevance = skill_data.get('relevance_score', 'N/A')
             depth = skill_data.get('depth_score', 'N/A')
@@ -121,7 +124,6 @@ async def analyze_communication_node(state: EvaluationState):
     data = extract_json(resp.content)
     
     if data:
-        # Log enhanced communication metrics
         filler_count = data.get('filler_word_count', 0)
         hedging_ratio = data.get('hedging_ratio', 'N/A')
         hedging_count = data.get('hedging_count', 0)
@@ -149,7 +151,6 @@ async def analyze_cultural_fit_node(state: EvaluationState):
     data = extract_json(resp.content)
     
     if data:
-        # Log behavioral rubric scores
         rubric = data.get('behavioral_rubric', {})
         for dimension, dim_data in rubric.items():
             if isinstance(dim_data, dict):
@@ -167,17 +168,22 @@ async def final_scoring_node(state: EvaluationState):
     parsed_skills = _parse_skill_graph(raw_skill_graph)
     skill_evaluations = state.get('skill_scores', {})
 
+    tech_data = extract_json(state.get('technical_analysis') or '{}') or {}
+    interview_validity = tech_data.get('interview_validity', 'VALID')
+    is_invalid_interview = (interview_validity == 'INVALID_INTERVIEW')
+    
+    if is_invalid_interview:
+        print(f"[EVAL DEBUG] INVALID INTERVIEW — zeroing all scores")
+
     print(f"[EVAL DEBUG] Parsed skills: {list(parsed_skills.keys())}")
     print(f"[EVAL DEBUG] LLM evaluated skills: {list(skill_evaluations.keys())}")
 
-    # ── Multi-layer weighted technical scoring ──
     weighted_tech_score = 0.0
     evaluated_weight_sum = 0.0
     total_weight_sum = 0.0
     matched_skills = []
     unmatched_skills = []
     
-    # Per-skill scores on 0-100 scale for admin display
     per_skill_scores = {}
 
     for skill_name, weight in parsed_skills.items():
@@ -186,18 +192,15 @@ async def final_scoring_node(state: EvaluationState):
         eval_data = _find_skill_score(skill_evaluations, skill_name)
         if eval_data and eval_data.get('score') is not None:
             try:
-                # Use the composite score (Layer 3) which already factors in relevance & depth
                 composite_score = float(eval_data['score'])
                 composite_score = min(5.0, max(0.0, composite_score))
                 
-                # Also extract layer scores for detailed logging
                 relevance = float(eval_data.get('relevance_score', composite_score))
                 depth = float(eval_data.get('depth_score', composite_score))
                 
                 weighted_tech_score += composite_score * weight
                 evaluated_weight_sum += weight
                 
-                # Convert to 0-100 scale for per-skill admin display
                 skill_score_100 = round(composite_score * 20.0, 1)
                 per_skill_scores[skill_name] = skill_score_100
                 
@@ -229,18 +232,14 @@ async def final_scoring_node(state: EvaluationState):
 
     print(f"[EVAL DEBUG] Normalized tech: {normalized_tech_score:.2f}, Coverage: {coverage_ratio:.2f}, Final tech: {final_technical_score:.2f}")
 
-    # ── Enhanced Communication scoring with sub-scores ──
     comm_data = extract_json(state.get('communication_analysis') or "{}") or {}
     cult_data = extract_json(state.get('cultural_analysis') or "{}") or {}
 
-    # Communication: use sub-scores for more accurate scoring
     try:
-        # Try to use the enhanced sub-scores first
         clarity = float(comm_data.get('clarity_subscore', 0))
         articulation = float(comm_data.get('articulation_subscore', 0))
         structure = float(comm_data.get('structure_subscore', 0))
         
-        # If sub-scores are available, calculate weighted communication score
         if clarity > 0 or articulation > 0 or structure > 0:
             comm_score = (clarity * 0.35) + (articulation * 0.35) + (structure * 0.30)
         else:
@@ -250,27 +249,22 @@ async def final_scoring_node(state: EvaluationState):
     except (ValueError, TypeError):
         comm_score = 0.0
 
-    # Confidence: factor in hedging ratio for more accurate scoring
     try:
         conf_score = float(comm_data.get('confidence_score', 0))
         
-        # Apply hedging ratio adjustment if available
         hedging_ratio = comm_data.get('hedging_ratio')
         if hedging_ratio is not None:
             try:
                 hr = float(hedging_ratio)
-                # If hedging ratio is very high but confidence score is also high, moderate it
                 if hr > 0.6 and conf_score > 3.0:
                     conf_score = min(conf_score, 3.0)
                     print(f"[EVAL DEBUG] Confidence capped at 3.0 due to high hedging ratio: {hr:.2f}")
                 elif hr < 0.2 and conf_score < 3.5:
-                    # If very assertive but scored low, give a small boost
                     conf_score = max(conf_score, conf_score + 0.5)
                     print(f"[EVAL DEBUG] Confidence boosted by 0.5 due to low hedging ratio: {hr:.2f}")
             except (ValueError, TypeError):
                 pass
         
-        # Apply filler word penalty
         filler_count = comm_data.get('filler_word_count', 0)
         if isinstance(filler_count, (int, float)) and filler_count > 10:
             penalty = min(1.0, (filler_count - 10) * 0.1)
@@ -281,9 +275,7 @@ async def final_scoring_node(state: EvaluationState):
     except (ValueError, TypeError):
         conf_score = 0.0
 
-    # ── Enhanced Cultural Fit scoring with behavioral rubric ──
     try:
-        # Try to use behavioral rubric dimension scores
         rubric = cult_data.get('behavioral_rubric', {})
         if rubric and isinstance(rubric, dict):
             dimension_scores = []
@@ -322,7 +314,6 @@ async def final_scoring_node(state: EvaluationState):
     except (ValueError, TypeError):
         cult_score = 0.0
 
-    # ── Final weighted total ──
     final_total_score = (
         (final_technical_score * 0.60) +
         (comm_score * 0.15) +
@@ -335,6 +326,17 @@ async def final_scoring_node(state: EvaluationState):
 
     print(f"[EVAL DEBUG] Scores → Tech: {final_technical_score:.2f}, Comm: {comm_score:.2f}, Conf: {conf_score:.2f}, Cult: {cult_score:.2f}")
     print(f"[EVAL DEBUG] Total (0-5): {final_total_score:.2f}, Total (0-100): {total_score_100:.2f}")
+
+    if is_invalid_interview:
+        print(f"[EVAL DEBUG] INVALID INTERVIEW — overriding all scores to 0")
+        final_technical_score = 0.0
+        comm_score = 0.0
+        conf_score = 0.0
+        cult_score = 0.0
+        final_total_score = 0.0
+        total_score_100 = 0.0
+        coverage_ratio = 0.0
+        per_skill_scores = {skill: 0.0 for skill in per_skill_scores}
 
     transcript_text = "\n".join(
         [f"{t.get('role','unknown')}: {t.get('text','')}" for t in state.get("transcript", [])]
@@ -360,12 +362,22 @@ async def final_scoring_node(state: EvaluationState):
     data = extract_json(resp.content) or {}
     llm_recommendation = data.get("recommendation", "REJECT").upper()
 
-    if total_score_100 < passing_score:
+    if is_invalid_interview:
+        final_recommendation = "REJECT"
+        print(f"[EVAL DEBUG] REJECT: Invalid interview — candidate did not participate")
+    elif total_score_100 < passing_score:
         final_recommendation = "REJECT"
         print(f"[EVAL DEBUG] REJECT: Score {total_score_100:.1f} < passing {passing_score}")
     elif coverage_ratio < 0.5:
         final_recommendation = "REJECT"
-        print(f"[EVAL DEBUG] REJECT: Coverage {coverage_ratio:.2f} < 0.5")
+        print(f"[EVAL DEBUG] REJECT: Coverage {coverage_ratio:.2f} < 0.5 — zeroing all displayed scores")
+        final_technical_score = 0.0
+        comm_score = 0.0
+        conf_score = 0.0
+        cult_score = 0.0
+        final_total_score = 0.0
+        total_score_100 = 0.0
+        per_skill_scores = {skill: 0.0 for skill in per_skill_scores}
     else:
         if total_score_100 < 55 and llm_recommendation != "REJECT":
             final_recommendation = "REJECT"
@@ -378,7 +390,6 @@ async def final_scoring_node(state: EvaluationState):
 
     print(f"[EVAL DEBUG] Final recommendation: {final_recommendation}")
 
-    # Build enhanced communication sub-scores for the response
     comm_sub_scores = {}
     if comm_data:
         comm_sub_scores = {
@@ -391,7 +402,6 @@ async def final_scoring_node(state: EvaluationState):
             "assertive_count": comm_data.get('assertive_count', 0),
         }
 
-    # Build behavioral rubric summary for the response
     behavioral_summary = {}
     if cult_data and 'behavioral_rubric' in cult_data:
         rubric = cult_data['behavioral_rubric']
