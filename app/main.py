@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from .keboli_client import keboli_client
 from .graph import evaluation_app
 from .state import EvaluationState
+from .observability import langfuse_handler
 
 app = FastAPI(title="Keboli Evaluation Agent", version="1.0.0")
 
@@ -37,7 +38,11 @@ async def evaluate_candidate(session_id: str):
             "error": None
         }
         
-        result = await evaluation_app.ainvoke(initial_state)
+        config = {"run_name": f"evaluation-{session_id}"}
+        if langfuse_handler:
+            config["callbacks"] = [langfuse_handler]
+
+        result = await evaluation_app.ainvoke(initial_state, config=config)
         
         if result.get("error"):
             raise HTTPException(status_code=500, detail=result["error"])
