@@ -17,6 +17,7 @@ async def final_scoring_node(state: EvaluationState):
     tech_data = extract_json(state.get('technical_analysis') or '{}') or {}
     interview_validity = tech_data.get('interview_validity', 'VALID')
     is_invalid_interview = (interview_validity == 'INVALID_INTERVIEW')
+
     
     if is_invalid_interview:
         print(f"[EVAL DEBUG] INVALID INTERVIEW — zeroing all scores")
@@ -173,30 +174,23 @@ async def final_scoring_node(state: EvaluationState):
     print(f"[EVAL DEBUG] Scores → Tech: {final_technical_score:.2f}, Comm: {comm_score:.2f}, Conf: {conf_score:.2f}, Cult: {cult_score:.2f}")
     print(f"[EVAL DEBUG] Total (0-5): {final_total_score:.2f}, Total (0-100): {total_score_100:.2f}")
 
-    if is_invalid_interview:
-        print(f"[EVAL DEBUG] INVALID INTERVIEW — overriding all scores to 0")
-        final_technical_score = 0.0
-        comm_score = 0.0
-        conf_score = 0.0
-        cult_score = 0.0
-        final_total_score = 0.0
-        total_score_100 = 0.0
-        coverage_ratio = 0.0
-        per_skill_scores = {skill: 0.0 for skill in per_skill_scores}
-
+   
     transcript_text = "\n".join(
         [f"{t.get('role','unknown')}: {t.get('text','')}" for t in state.get("transcript", [])]
     )
 
     llm = get_llm(temperature=0)
 
+    synthesis_total = 0.0 if is_invalid_interview else round(total_score_100, 1)
+    synthesis_coverage = 0.0 if is_invalid_interview else round(coverage_ratio, 2)
+
     prompt = PromptManager.get_final_synthesis_prompt(
         state.get('technical_analysis') or "None",
         state.get('communication_analysis') or "None",
         state.get('cultural_analysis') or "None",
         transcript_text,
-        round(total_score_100, 1),
-        round(coverage_ratio, 2),
+        synthesis_total,
+        synthesis_coverage,
         passing_score
     )
 
@@ -211,19 +205,20 @@ async def final_scoring_node(state: EvaluationState):
     if is_invalid_interview:
         final_recommendation = "REJECT"
         print(f"[EVAL DEBUG] REJECT: Invalid interview — candidate did not participate")
-    elif total_score_100 < passing_score:
-        final_recommendation = "REJECT"
-        print(f"[EVAL DEBUG] REJECT: Score {total_score_100:.1f} < passing {passing_score}")
-    elif coverage_ratio < 0.5:
-        final_recommendation = "REJECT"
-        print(f"[EVAL DEBUG] REJECT: Coverage {coverage_ratio:.2f} < 0.5 — zeroing all displayed scores")
         final_technical_score = 0.0
         comm_score = 0.0
         conf_score = 0.0
         cult_score = 0.0
         final_total_score = 0.0
         total_score_100 = 0.0
+        coverage_ratio = 0.0
         per_skill_scores = {skill: 0.0 for skill in per_skill_scores}
+    elif total_score_100 < passing_score:
+        final_recommendation = "REJECT"
+        print(f"[EVAL DEBUG] REJECT: Score {total_score_100:.1f} < passing {passing_score}")
+    elif coverage_ratio < 0.5:
+        final_recommendation = "REJECT"
+        print(f"[EVAL DEBUG] REJECT: Coverage {coverage_ratio:.2f} < 0.5 — keeping real scores for transparency")
     else:
         if total_score_100 < 55 and llm_recommendation != "REJECT":
             final_recommendation = "REJECT"
