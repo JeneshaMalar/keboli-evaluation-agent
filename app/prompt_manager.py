@@ -23,7 +23,14 @@ class PromptManager:
     @staticmethod
     def _get_and_format(prompt_name: str, fallback_template: str, **kwargs) -> str:
         template = get_dynamic_prompt(prompt_name, fallback_template)
-        return template.format(**kwargs)
+
+        try:
+            for key, value in kwargs.items():
+                template = template.replace(f"{{{{{key}}}}}", str(value))
+            return template
+        except Exception as e:
+            print("PROMPT NAME:", prompt_name)
+            raise e
 
     @staticmethod
     def get_technical_prompt(transcript: str, skill_graph: str) -> str:
@@ -501,10 +508,10 @@ Then fine-tune ±0.5 based on:
 
 
 # SKILL GRAPH (skills to evaluate with their weights):
-{skill_graph}
+{{skill_graph}}
 
 # INTERVIEW TRANSCRIPT:
-{transcript}
+{{transcript}}
 
 # OUTPUT FORMAT (JSON only):
 {{
@@ -570,7 +577,7 @@ Then fine-tune ±0.5 based on:
     def get_communication_prompt(transcript: str) -> str:
         return PromptManager._get_and_format(
             "EVALUATION_COMMUNICATION_PROMPT",
-            f"""
+            """
 You are an expert HR communication and behavioral assessor. Evaluate the candidate's communication
 clarity and confidence based ONLY on explicit evidence from the transcript.
 
@@ -689,7 +696,7 @@ Calculate hedging_ratio = hedging_count / (hedging_count + assertive_count)
 {{transcript}}
 
 # OUTPUT (JSON only):
-{{{{
+{{
     "interview_participated": <true|false>,
     "on_topic_response_count": <integer>,
     "communication_score": <float 0.0-5.0>,
@@ -711,7 +718,7 @@ Calculate hedging_ratio = hedging_count / (hedging_count + assertive_count)
     "avg_answer_length": "<short|medium|detailed>",
     "uncertainty_count": <number of times candidate expressed uncertainty>,
     "sentence_structure_notes": "<analysis of sentence quality, completeness, and logical flow>"
-}}}}
+}
 """,
             transcript=transcript
         )
@@ -720,7 +727,7 @@ Calculate hedging_ratio = hedging_count / (hedging_count + assertive_count)
     def get_cultural_fit_prompt(transcript: str, job_description: str = "") -> str:
         return PromptManager._get_and_format(
             "EVALUATION_CULTURAL_FIT_PROMPT",
-            f"""
+            """
 You are a company culture specialist and behavioral interview assessor. Evaluate the candidate's
 cultural alignment using a structured Behavioral Rubric, based ONLY on evidence from the transcript.
 
@@ -830,44 +837,44 @@ Keywords: "honestly", "transparent", "I don't know but", "the right thing to do"
 {{transcript}}
 
 # OUTPUT (JSON only):
-{{{{
+{{
     "cultural_participated": <true|false>,
     "cultural_response_count": <integer>,
     "cultural_fit_score": <float 0.0-5.0>,
-    "behavioral_rubric": {{{{
-        "ownership": {{{{
+    "behavioral_rubric": {{
+        "ownership": {{
             "score": <float 0.0-5.0>,
             "evidence": ["<supporting quotes>"],
             "keywords_found": ["<relevant keywords detected>"]
-        }}}},
-        "collaboration": {{{{
+        }},
+        "collaboration": {{
             "score": <float 0.0-5.0>,
             "evidence": ["<supporting quotes>"],
             "keywords_found": ["<relevant keywords detected>"]
-        }}}},
-        "growth_mindset": {{{{
+        }},
+        "growth_mindset": {{
             "score": <float 0.0-5.0>,
             "evidence": ["<supporting quotes>"],
             "keywords_found": ["<relevant keywords detected>"]
-        }}}},
-        "innovation": {{{{
+        }},
+        "innovation": {{
             "score": <float 0.0-5.0>,
             "evidence": ["<supporting quotes>"],
             "keywords_found": ["<relevant keywords detected>"]
-        }}}},
-        "integrity": {{{{
+        }},
+        "integrity": {{
             "score": <float 0.0-5.0>,
             "evidence": ["<supporting quotes>"],
             "keywords_found": ["<relevant keywords detected>"]
-        }}}}
-    }}}},
+        }}
+    }},
     "cultural_fit_evidence": ["<top supporting quotes across all dimensions>"],
     "cultural_fit_justification": "<rubric-based explanation referencing dimension scores>",
     "engagement_level": "<none|low|moderate|high>",
     "red_flags": ["<any concerning behavioral patterns>"],
     "star_stories_detected": <integer count of STAR-method stories found>,
     "dimension_summary": "<brief summary of strongest and weakest cultural dimensions>"
-}}}}
+}}
 """,
             transcript=transcript,
             job_description=job_description if job_description else "Not provided — use general professional values"
@@ -877,7 +884,7 @@ Keywords: "honestly", "transparent", "I don't know but", "the right thing to do"
     def get_final_synthesis_prompt(tech, comm, culture, transcript, total_score, coverage_ratio, passing_score):
         return PromptManager._get_and_format(
             "EVALUATION_FINAL_SYNTHESIS_PROMPT",
-            f"""
+            """
 You are a strict but fair hiring decision maker. Your recommendation MUST align with the numeric evidence.
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -908,7 +915,7 @@ If neither condition triggers, set `interview_was_valid` = true and proceed norm
 # DECISION FRAMEWORK:
 
 ## Hard Rules (cannot be overridden):
-- If Total Score < {passing_score} → MUST be REJECT
+- If Total Score < {{passing_score}} → MUST be REJECT
 - If Coverage Ratio < 0.5 → MUST be REJECT (too few skills evaluated)
 
 ## Score-Based Guidelines:
@@ -935,21 +942,21 @@ Before issuing HIRE for a score in the 55-64 range, explicitly verify:
 If ANY of the above is NO → decision must be REJECT.
 
 # NUMERIC METRICS:
-- Total Score (0-100): {total_score}
-- Coverage Ratio (0.0-1.0): {coverage_ratio}
-- Passing Score Threshold: {passing_score}
+- Total Score (0-100): {{total_score}}
+- Coverage Ratio (0.0-1.0): {{coverage_ratio}}
+- Passing Score Threshold: {{passing_score}}
 
 # TECHNICAL ANALYSIS:
-{tech}
+{{tech}}
 
 # COMMUNICATION ANALYSIS:
-{comm}
+{{comm}}
 
 # CULTURAL ANALYSIS:
-{culture}
+{{culture}}
 
 # TRANSCRIPT:
-{transcript}
+{{transcript}}
 
 # YOUR TASK:
 1. Run the Pre-Check (Interview Validity & Coverage Override) FIRST
