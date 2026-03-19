@@ -8,6 +8,10 @@ env:
   REPOSITORY: gwx-gar-intern-01
   SERVICE_NAME: evaluation-agent 
 
+permissions:
+  id-token: write 
+  contents: read
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
