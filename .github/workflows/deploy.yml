@@ -35,7 +35,7 @@ jobs:
           gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
           docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME:latest .
           docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME:latest
-          
+
           gcloud run deploy $SERVICE_NAME \
             --image $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME:latest \
             --region $REGION \
@@ -47,4 +47,4 @@ jobs:
             --min-instances=0 \
             --min=0 \
             --max=2 \
-            --service-account gwx-cloudrun-sa-01@gwx-internship-01.iam.gserviceaccount.com 
+            --service-account gwx-gh-sa-01@gwx-internship-01.iam.gserviceaccount.com 
