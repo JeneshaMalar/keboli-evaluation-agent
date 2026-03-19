@@ -3,11 +3,83 @@ from .keboli_client import keboli_client
 from .graph import evaluation_app
 from .state import EvaluationState
 from .observability import langfuse_handler
-
+from datetime import datetime, timezone   
+from fastapi.responses import JSONResponse  
+from fastapi import status                
+from sqlalchemy import text     
+import httpx          
 app = FastAPI(title="Keboli Evaluation Agent", version="1.0.0")
+@app.get("/health")
+async def health_check():
+    """
+    Check application health status by verifying connectivity to the 
+    Keboli Main Backend and the readiness of the Evaluation Graph.
+    """
+    services_health = {
+        "keboli_backend_connectivity": "down",
+        "evaluation_graph": "down"
+    }
+    
+    try:
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{keboli_client.base_url}/health", 
+                    timeout=2.0
+                )
+                if response.status_code == 200:
+                    services_health["keboli_backend_connectivity"] = "ok"
+                else:
+                    services_health["keboli_backend_connectivity"] = f"unhealthy_status_{response.status_code}"
+        except Exception as e:
+            services_health["keboli_backend_connectivity"] = f"connection_failed: {str(e)}"
+
+        if evaluation_app is not None:
+            services_health["evaluation_graph"] = "ok"
+
+        is_healthy = all(v == "ok" for v in services_health.values())
+        
+        health_payload = {
+            "status": "healthy" if is_healthy else "unhealthy",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "services": services_health
+        }
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK if is_healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=health_payload
+        )
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "status": "error", 
+                "error": str(e), 
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        )
 
 @app.post("/api/v1/evaluate/{session_id}")
 async def evaluate_candidate(session_id: str):
+    """
+    Start an automated evaluation of a candidate based on their interview session.
+  
+    This endpoint fetches the interview transcript, runs it through a 
+    multi-step LangGraph analysis (technical, communication, and cultural), 
+    calculates normalized scores, and persists the results to the backend.
+
+    Args:
+        session_id: The unique identifier for the interview session to be evaluated.
+  
+    Raises:
+        HTTPException (500): If the LangGraph analysis fails or if there is an 
+                             error communicating with the Keboli backend.
+  
+    Returns:
+        A dictionary containing the status, session_id, and final hiring recommendation.
+    """
+
     try:
         await keboli_client.post_log({
             "level": "INFO",
@@ -90,8 +162,6 @@ async def evaluate_candidate(session_id: str):
             }
         }
         
-        print(f"Pushing evaluation for session {session_id}: {recommendation}")
-        print(f"Per-skill scores: {per_skill_scores}")
         
         await keboli_client.post_log({
             "level": "INFO",
@@ -107,10 +177,8 @@ async def evaluate_candidate(session_id: str):
         })
         try:
             resp = await keboli_client.post_evaluation(session_id, evaluation_payload)
-            print("Successfully posted evaluation to backend.")
             return {"status": "success", "session_id": session_id, "recommendation": recommendation}
         except Exception as api_err:
-            print(f"Failed to post evaluation: {api_err}")
             if hasattr(api_err, 'response') and api_err.response:
                 print(f"Backend response: {api_err.response.text}")
             raise api_err
@@ -125,7 +193,6 @@ async def evaluate_candidate(session_id: str):
             "message": f"Evaluation failed for session {session_id}: {str(e)}",
             "error_stack": str(e)
         })
-        print(f"Evaluation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

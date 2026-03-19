@@ -7,6 +7,7 @@ from ..utils.json_utils import extract_json
 
 
 async def analyze_cultural_fit_node(state: EvaluationState):
+    """Node responsible for analyzing the cultural fit and behavioral aspects of the candidate based on the interview transcript and job description."""
     llm = get_llm(temperature=0)
     transcript_text = "\n".join([f"{t['role']}: {t['text']}" for t in state['transcript']])
     
@@ -20,13 +21,10 @@ async def analyze_cultural_fit_node(state: EvaluationState):
     ])
     
     data = extract_json(resp.content)
-    
     if data:
         rubric = data.get('behavioral_rubric', {})
         for dimension, dim_data in rubric.items():
             if isinstance(dim_data, dict):
-                print(f"[EVAL CULTURE] {dimension}: {dim_data.get('score', 'N/A')}/5")
-        print(f"[EVAL CULTURE] Overall: {data.get('cultural_fit_score', 'N/A')}/5, "
-              f"STAR stories: {data.get('star_stories_detected', 0)}")
+                pass
     
     return {"cultural_analysis": json.dumps(data) if data else resp.content}
