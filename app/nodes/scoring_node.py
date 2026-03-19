@@ -8,6 +8,7 @@ from ..utils.skill_utils import parse_skill_graph, find_skill_score
 
 
 async def final_scoring_node(state: EvaluationState):
+    """Node responsible for calculating the final scores and recommendation for the candidate based on the technical, communication, and cultural analyses, as well as the original skill graph and interview transcript."""
     raw_skill_graph = state['assessment_details'].get('skill_graph', {})
     passing_score = float(state['assessment_details'].get('passing_score', 60))
 
@@ -19,11 +20,7 @@ async def final_scoring_node(state: EvaluationState):
     is_invalid_interview = (interview_validity == 'INVALID_INTERVIEW')
 
     
-    if is_invalid_interview:
-        print(f"[EVAL DEBUG] INVALID INTERVIEW — zeroing all scores")
-
-    print(f"[EVAL DEBUG] Parsed skills: {list(parsed_skills.keys())}")
-    print(f"[EVAL DEBUG] LLM evaluated skills: {list(skill_evaluations.keys())}")
+    
 
     weighted_tech_score = 0.0
     evaluated_weight_sum = 0.0
@@ -62,9 +59,7 @@ async def final_scoring_node(state: EvaluationState):
             unmatched_skills.append(skill_name)
             per_skill_scores[skill_name] = 0.0
 
-    print(f"[EVAL DEBUG] Matched (multi-layer): {matched_skills}")
-    print(f"[EVAL DEBUG] Unmatched/unevaluated: {unmatched_skills}")
-    print(f"[EVAL DEBUG] Per-skill scores (0-100): {per_skill_scores}")
+  
 
     if evaluated_weight_sum > 0:
         normalized_tech_score = weighted_tech_score / evaluated_weight_sum
@@ -77,7 +72,6 @@ async def final_scoring_node(state: EvaluationState):
     final_technical_score = normalized_tech_score * coverage_factor
     final_technical_score = min(5.0, max(0.0, final_technical_score))
 
-    print(f"[EVAL DEBUG] Normalized tech: {normalized_tech_score:.2f}, Coverage: {coverage_ratio:.2f}, Final tech: {final_technical_score:.2f}")
 
     comm_data = extract_json(state.get('communication_analysis') or "{}") or {}
     cult_data = extract_json(state.get('cultural_analysis') or "{}") or {}
@@ -105,10 +99,8 @@ async def final_scoring_node(state: EvaluationState):
                 hr = float(hedging_ratio)
                 if hr > 0.6 and conf_score > 3.0:
                     conf_score = min(conf_score, 3.0)
-                    print(f"[EVAL DEBUG] Confidence capped at 3.0 due to high hedging ratio: {hr:.2f}")
                 elif hr < 0.2 and conf_score < 3.5:
                     conf_score = max(conf_score, conf_score + 0.5)
-                    print(f"[EVAL DEBUG] Confidence boosted by 0.5 due to low hedging ratio: {hr:.2f}")
             except (ValueError, TypeError):
                 pass
         
@@ -116,7 +108,6 @@ async def final_scoring_node(state: EvaluationState):
         if isinstance(filler_count, (int, float)) and filler_count > 10:
             penalty = min(1.0, (filler_count - 10) * 0.1)
             comm_score = max(0.0, comm_score - penalty)
-            print(f"[EVAL DEBUG] Communication penalized by {penalty:.1f} for {filler_count} filler words")
         
         conf_score = min(5.0, max(0.0, conf_score))
     except (ValueError, TypeError):
@@ -151,7 +142,6 @@ async def final_scoring_node(state: EvaluationState):
             
             if total_cult_weight > 0:
                 cult_score = weighted_cult / total_cult_weight
-                print(f"[EVAL DEBUG] Cultural dimensions: {', '.join(dimension_scores)}")
             else:
                 cult_score = float(cult_data.get('cultural_fit_score', 0))
         else:
@@ -171,8 +161,7 @@ async def final_scoring_node(state: EvaluationState):
     
     total_score_100 = final_total_score * 20.0
 
-    print(f"[EVAL DEBUG] Scores → Tech: {final_technical_score:.2f}, Comm: {comm_score:.2f}, Conf: {conf_score:.2f}, Cult: {cult_score:.2f}")
-    print(f"[EVAL DEBUG] Total (0-5): {final_total_score:.2f}, Total (0-100): {total_score_100:.2f}")
+
 
    
     transcript_text = "\n".join(
@@ -204,7 +193,6 @@ async def final_scoring_node(state: EvaluationState):
 
     if is_invalid_interview:
         final_recommendation = "REJECT"
-        print(f"[EVAL DEBUG] REJECT: Invalid interview — candidate did not participate")
         final_technical_score = 0.0
         comm_score = 0.0
         conf_score = 0.0
@@ -215,21 +203,16 @@ async def final_scoring_node(state: EvaluationState):
         per_skill_scores = {skill: 0.0 for skill in per_skill_scores}
     elif total_score_100 < passing_score:
         final_recommendation = "REJECT"
-        print(f"[EVAL DEBUG] REJECT: Score {total_score_100:.1f} < passing {passing_score}")
     elif coverage_ratio < 0.5:
         final_recommendation = "REJECT"
-        print(f"[EVAL DEBUG] REJECT: Coverage {coverage_ratio:.2f} < 0.5 — keeping real scores for transparency")
     else:
         if total_score_100 < 55 and llm_recommendation != "REJECT":
             final_recommendation = "REJECT"
-            print(f"[EVAL DEBUG] Overriding LLM {llm_recommendation} → REJECT (score {total_score_100:.1f} < 55)")
         elif total_score_100 < 80 and llm_recommendation == "STRONG_HIRE":
             final_recommendation = "HIRE"
-            print(f"[EVAL DEBUG] Downgrading STRONG_HIRE → HIRE (score {total_score_100:.1f} < 80)")
         else:
             final_recommendation = llm_recommendation
 
-    print(f"[EVAL DEBUG] Final recommendation: {final_recommendation}")
 
     comm_sub_scores = {}
     if comm_data:

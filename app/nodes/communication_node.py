@@ -7,6 +7,7 @@ from ..utils.json_utils import extract_json
 
 
 async def analyze_communication_node(state: EvaluationState):
+    """Node responsible for analyzing the communication and confidence of the candidate based on the interview transcript."""
     llm = get_llm(temperature=0)
     transcript_text = "\n".join([f"{t['role']}: {t['text']}" for t in state['transcript']])
     
@@ -24,9 +25,5 @@ async def analyze_communication_node(state: EvaluationState):
         hedging_ratio = data.get('hedging_ratio', 'N/A')
         hedging_count = data.get('hedging_count', 0)
         assertive_count = data.get('assertive_count', 0)
-        print(f"[EVAL COMM] Fillers: {filler_count}, Hedging: {hedging_count}, Assertive: {assertive_count}, Ratio: {hedging_ratio}")
-        print(f"[EVAL COMM] Sub-scores → Clarity: {data.get('clarity_subscore', 'N/A')}, "
-              f"Articulation: {data.get('articulation_subscore', 'N/A')}, "
-              f"Structure: {data.get('structure_subscore', 'N/A')}")
     
     return {"communication_analysis": json.dumps(data) if data else resp.content}
