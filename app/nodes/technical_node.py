@@ -7,6 +7,7 @@ from ..utils.json_utils import extract_json
 
 
 async def analyze_technical_node(state: EvaluationState):
+    """Node responsible for analyzing the technical performance of the candidate based on the interview transcript and the skill graph extracted from the job description."""
     llm = get_llm(temperature=0)
     transcript_text = "\n".join([f"{t['role']}: {t['text']}" for t in state['transcript']])
     
@@ -22,14 +23,12 @@ async def analyze_technical_node(state: EvaluationState):
     data = extract_json(resp.content)
     if data and "skill_evaluations" in data:
         interview_validity = data.get('interview_validity', 'VALID')
-        if interview_validity == 'INVALID_INTERVIEW':
-            print(f"[EVAL TECH] INVALID INTERVIEW DETECTED — valid_response_count: {data.get('valid_response_count', 0)}")
+        
         
         for skill_name, skill_data in data["skill_evaluations"].items():
             relevance = skill_data.get('relevance_score', 'N/A')
             depth = skill_data.get('depth_score', 'N/A')
             composite = skill_data.get('score', 'N/A')
-            print(f"[EVAL TECH] {skill_name}: Relevance={relevance}, Depth={depth}, Composite={composite}")
         
         return {
             "technical_analysis": json.dumps(data) if isinstance(data, dict) else str(data),
