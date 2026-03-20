@@ -24,7 +24,7 @@ jobs:
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: projects/717740758627/locations/global/workloadIdentityPools/githubinterns/providers/github-provider
-          service_account: gwx-cloudrun-sa-01@gwx-internship-01.iam.gserviceaccount.com
+          service_account: gwx-gh-sa-01@gwx-internship-01.iam.gserviceaccount.com
           token_format: 'access_token'
 
       - name: Set up gcloud
