@@ -1,5 +1,6 @@
-import os
 import logging
+import os
+
 from langfuse import Langfuse
 
 logger = logging.getLogger("keboli-prompt-manager")
@@ -21,7 +22,7 @@ def get_dynamic_prompt(prompt_name: str, fallback_content: str) -> str:
 
 class PromptManager:
     @staticmethod
-    def _get_and_format(prompt_name: str, fallback_template: str, **kwargs) -> str:
+    def _get_and_format(prompt_name: str, fallback_template: str, **kwargs: str | float) -> str:
         template = get_dynamic_prompt(prompt_name, fallback_template)
 
         try:
@@ -881,7 +882,15 @@ Keywords: "honestly", "transparent", "I don't know but", "the right thing to do"
         )
 
     @staticmethod
-    def get_final_synthesis_prompt(tech, comm, culture, transcript, total_score, coverage_ratio, passing_score):
+    def get_final_synthesis_prompt(
+        tech: str,
+        comm: str,
+        culture: str,
+        transcript: str,
+        total_score: float,
+        coverage_ratio: float,
+        passing_score: float
+    ) -> str:
         return PromptManager._get_and_format(
             "EVALUATION_FINAL_SYNTHESIS_PROMPT",
             """
