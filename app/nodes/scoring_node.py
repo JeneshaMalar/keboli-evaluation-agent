@@ -1,16 +1,18 @@
-import json
-from langchain_core.messages import SystemMessage, HumanMessage
-from ..state import EvaluationState
+from langchain_core.messages import HumanMessage, SystemMessage
+from typing import Any
+
 from ..llm import get_llm
 from ..prompt_manager import PromptManager
+from ..state import EvaluationState
 from ..utils.json_utils import extract_json
-from ..utils.skill_utils import parse_skill_graph, find_skill_score
+from ..utils.skill_utils import find_skill_score, parse_skill_graph
 
 
-async def final_scoring_node(state: EvaluationState):
+async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:  
     """Node responsible for calculating the final scores and recommendation for the candidate based on the technical, communication, and cultural analyses, as well as the original skill graph and interview transcript."""
     raw_skill_graph = state['assessment_details'].get('skill_graph', {})
-    passing_score = float(state['assessment_details'].get('passing_score', 60))
+    passing_val = state['assessment_details'].get('passing_score', 60)
+    passing_score = float(passing_val) if isinstance(passing_val, (int, float, str)) else 60.0
 
     parsed_skills = parse_skill_graph(raw_skill_graph)
     skill_evaluations = state.get('skill_scores', {})
@@ -19,15 +21,15 @@ async def final_scoring_node(state: EvaluationState):
     interview_validity = tech_data.get('interview_validity', 'VALID')
     is_invalid_interview = (interview_validity == 'INVALID_INTERVIEW')
 
-    
-    
+
+
 
     weighted_tech_score = 0.0
     evaluated_weight_sum = 0.0
     total_weight_sum = 0.0
     matched_skills = []
     unmatched_skills = []
-    
+
     per_skill_scores = {}
 
     for skill_name, weight in parsed_skills.items():
@@ -38,16 +40,16 @@ async def final_scoring_node(state: EvaluationState):
             try:
                 composite_score = float(eval_data['score'])
                 composite_score = min(5.0, max(0.0, composite_score))
-                
+
                 relevance = float(eval_data.get('relevance_score', composite_score))
                 depth = float(eval_data.get('depth_score', composite_score))
-                
+
                 weighted_tech_score += composite_score * weight
                 evaluated_weight_sum += weight
-                
+
                 skill_score_100 = round(composite_score * 20.0, 1)
                 per_skill_scores[skill_name] = skill_score_100
-                
+
                 matched_skills.append(
                     f"{skill_name}: {composite_score}/5 "
                     f"(R={relevance:.1f}, D={depth:.1f}, w={weight})"
@@ -59,7 +61,7 @@ async def final_scoring_node(state: EvaluationState):
             unmatched_skills.append(skill_name)
             per_skill_scores[skill_name] = 0.0
 
-  
+
 
     if evaluated_weight_sum > 0:
         normalized_tech_score = weighted_tech_score / evaluated_weight_sum
@@ -80,19 +82,19 @@ async def final_scoring_node(state: EvaluationState):
         clarity = float(comm_data.get('clarity_subscore', 0))
         articulation = float(comm_data.get('articulation_subscore', 0))
         structure = float(comm_data.get('structure_subscore', 0))
-        
+
         if clarity > 0 or articulation > 0 or structure > 0:
             comm_score = (clarity * 0.35) + (articulation * 0.35) + (structure * 0.30)
         else:
             comm_score = float(comm_data.get('communication_score', 0))
-        
+
         comm_score = min(5.0, max(0.0, comm_score))
     except (ValueError, TypeError):
         comm_score = 0.0
 
     try:
         conf_score = float(comm_data.get('confidence_score', 0))
-        
+
         hedging_ratio = comm_data.get('hedging_ratio')
         if hedging_ratio is not None:
             try:
@@ -103,12 +105,12 @@ async def final_scoring_node(state: EvaluationState):
                     conf_score = max(conf_score, conf_score + 0.5)
             except (ValueError, TypeError):
                 pass
-        
+
         filler_count = comm_data.get('filler_word_count', 0)
         if isinstance(filler_count, (int, float)) and filler_count > 10:
             penalty = min(1.0, (filler_count - 10) * 0.1)
             comm_score = max(0.0, comm_score - penalty)
-        
+
         conf_score = min(5.0, max(0.0, conf_score))
     except (ValueError, TypeError):
         conf_score = 0.0
@@ -124,10 +126,10 @@ async def final_scoring_node(state: EvaluationState):
                 'innovation': 0.15,
                 'integrity': 0.15
             }
-            
+
             weighted_cult = 0.0
             total_cult_weight = 0.0
-            
+
             for dim_name, dim_weight in dimension_weights.items():
                 dim_data = rubric.get(dim_name, {})
                 if isinstance(dim_data, dict) and dim_data.get('score') is not None:
@@ -139,14 +141,14 @@ async def final_scoring_node(state: EvaluationState):
                         dimension_scores.append(f"{dim_name}: {dim_score}/5")
                     except (ValueError, TypeError):
                         continue
-            
+
             if total_cult_weight > 0:
                 cult_score = weighted_cult / total_cult_weight
             else:
                 cult_score = float(cult_data.get('cultural_fit_score', 0))
         else:
             cult_score = float(cult_data.get('cultural_fit_score', 0))
-        
+
         cult_score = min(5.0, max(0.0, cult_score))
     except (ValueError, TypeError):
         cult_score = 0.0
@@ -158,12 +160,12 @@ async def final_scoring_node(state: EvaluationState):
         (cult_score * 0.10)
     )
     final_total_score = min(5.0, max(0.0, final_total_score))
-    
+
     total_score_100 = final_total_score * 20.0
 
 
 
-   
+
     transcript_text = "\n".join(
         [f"{t.get('role','unknown')}: {t.get('text','')}" for t in state.get("transcript", [])]
     )
@@ -174,21 +176,21 @@ async def final_scoring_node(state: EvaluationState):
     synthesis_coverage = 0.0 if is_invalid_interview else round(coverage_ratio, 2)
 
     prompt = PromptManager.get_final_synthesis_prompt(
-        state.get('technical_analysis') or "None",
-        state.get('communication_analysis') or "None",
-        state.get('cultural_analysis') or "None",
-        transcript_text,
-        synthesis_total,
-        synthesis_coverage,
-        passing_score
+        str(state.get('technical_analysis') or "None"),
+        str(state.get('communication_analysis') or "None"),
+        str(state.get('cultural_analysis') or "None"),
+        str(transcript_text),
+        float(synthesis_total),
+        float(synthesis_coverage),
+        float(passing_score)
     )
 
     resp = await llm.ainvoke([
         SystemMessage(content="You are a strict hiring decision maker. Your recommendation MUST align with the numeric score ranges provided. Output valid JSON only."),
-        HumanMessage(content=prompt)
+        HumanMessage(content=str(prompt))
     ])
 
-    data = extract_json(resp.content) or {}
+    data = extract_json(str(resp.content)) or {}
     llm_recommendation = data.get("recommendation", "REJECT").upper()
 
     if is_invalid_interview:
@@ -200,10 +202,8 @@ async def final_scoring_node(state: EvaluationState):
         final_total_score = 0.0
         total_score_100 = 0.0
         coverage_ratio = 0.0
-        per_skill_scores = {skill: 0.0 for skill in per_skill_scores}
-    elif total_score_100 < passing_score:
-        final_recommendation = "REJECT"
-    elif coverage_ratio < 0.5:
+        per_skill_scores = dict.fromkeys(per_skill_scores, 0.0)
+    elif total_score_100 < passing_score or coverage_ratio < 0.5:
         final_recommendation = "REJECT"
     else:
         if total_score_100 < 55 and llm_recommendation != "REJECT":
