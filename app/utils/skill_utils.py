@@ -1,7 +1,7 @@
-from typing import Dict, Any, Optional
+from typing import Any
 
 
-def parse_skill_graph(raw_skill_graph: Any) -> Dict[str, float]:
+def parse_skill_graph(raw_skill_graph: Any) -> dict[str, float]:
     """
     Normalize the skill_graph from the assessment into a flat {skill_name: weight} dict.
     The interview agent stores it as: {"skills": [{"name": "Java", "weightage": 0.3, ...}]}
@@ -28,9 +28,9 @@ def parse_skill_graph(raw_skill_graph: Any) -> Dict[str, float]:
         result = {}
         for key, val in raw_skill_graph.items():
             try:
-                w = float(str(val).replace('%', '')) 
+                w = float(str(val).replace('%', ''))
                 if w > 1.0:
-                    w = w / 100.0  
+                    w = w / 100.0
                 result[key] = w
             except (ValueError, TypeError):
                 continue
@@ -39,24 +39,25 @@ def parse_skill_graph(raw_skill_graph: Any) -> Dict[str, float]:
     return {}
 
 
-def find_skill_score(skill_evaluations: Dict, skill_name: str) -> Optional[Dict]:
+def find_skill_score(skill_evaluations: dict[str, Any], skill_name: str) -> dict[str, Any] | None:
     """
     Fuzzy match a skill name from the graph against the LLM's skill evaluation keys.
     The LLM might use slightly different casing or naming.
     """
     if not skill_evaluations:
         return None
-    
+
     if skill_name in skill_evaluations:
-        return skill_evaluations[skill_name]
-    
+        val1 = skill_evaluations[skill_name]
+        return val1 if isinstance(val1, dict) else None
+
     lower_name = skill_name.lower()
     for key, val in skill_evaluations.items():
         if key.lower() == lower_name:
-            return val
-    
+            return val if isinstance(val, dict) else None
+
     for key, val in skill_evaluations.items():
         if lower_name in key.lower() or key.lower() in lower_name:
-            return val
-    
+            return val if isinstance(val, dict) else None
+
     return None

@@ -1,14 +1,15 @@
-from langgraph.graph import StateGraph, END
-from ..state import EvaluationState
+from langgraph.graph import END, StateGraph
+
 from ..nodes import (
-    analyze_technical_node,
     analyze_communication_node,
     analyze_cultural_fit_node,
-    final_scoring_node
+    analyze_technical_node,
+    final_scoring_node,
 )
+from ..state import EvaluationState
 
 
-def build_evaluation_workflow() -> StateGraph:
+def build_evaluation_workflow() -> StateGraph:  
     """Build and compile the evaluation workflow."""
     workflow = StateGraph(EvaluationState)
 
@@ -23,4 +24,4 @@ def build_evaluation_workflow() -> StateGraph:
     workflow.add_edge("analyze_cultural", "final_scoring")
     workflow.add_edge("final_scoring", END)
 
-    return workflow.compile()
+    return workflow.compile() 

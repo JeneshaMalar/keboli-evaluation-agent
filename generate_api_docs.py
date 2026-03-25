@@ -7,7 +7,7 @@ input_file = Path("docs/openapi.json")
 output_file = Path("docs/API_Documentation.md")
 
 # Load OpenAPI JSON
-with open(input_file, "r", encoding="utf-8") as f:
+with open(input_file, "r", encoding="utf-8") as f:  # noqa: UP015
     data = json.load(f)
 
 # Metadata

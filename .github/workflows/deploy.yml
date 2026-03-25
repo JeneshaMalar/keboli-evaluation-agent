@@ -1,50 +1,50 @@
-name: Deploy Agent
-on:
-  push:
-    branches: [ dev ]
-env:
-  PROJECT_ID: gwx-internship-01
-  REGION: us-east1
-  REPOSITORY: gwx-gar-intern-01
-  SERVICE_NAME: evaluation-agent 
+# name: Deploy Agent
+# on:
+#   push:
+#     branches: [ dev ]
+# env:
+#   PROJECT_ID: gwx-internship-01
+#   REGION: us-east1
+#   REPOSITORY: gwx-gar-intern-01
+#   SERVICE_NAME: evaluation-agent 
 
-permissions:
-  id-token: write 
-  contents: read
+# permissions:
+#   id-token: write 
+#   contents: read
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout Repository
+#         uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: projects/717740758627/locations/global/workloadIdentityPools/githubinterns/providers/github-provider
-          service_account: gwx-gh-sa-01@gwx-internship-01.iam.gserviceaccount.com
-          token_format: 'access_token'
+#       - name: Authenticate to Google Cloud
+#         id: auth
+#         uses: google-github-actions/auth@v2
+#         with:
+#           workload_identity_provider: projects/717740758627/locations/global/workloadIdentityPools/githubinterns/providers/github-provider
+#           service_account: gwx-gh-sa-01@gwx-internship-01.iam.gserviceaccount.com
+#           token_format: 'access_token'
 
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+#       - name: Set up gcloud
+#         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Build, Push, and Deploy
-        run: |
-          gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
-          docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME:latest .
-          docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME:latest
+#       - name: Build, Push, and Deploy
+#         run: |
+#           gcloud auth configure-docker $REGION-docker.pkg.dev --quiet
+#           docker build -t $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME:latest .
+#           docker push $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME:latest
 
-          gcloud run deploy $SERVICE_NAME \
-            --image $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME:latest \
-            --region $REGION \
-            --allow-unauthenticated \
-            --project=$PROJECT_ID \
-            --platform=managed \
-            --port=8002 \
-            --max-instances=2 \
-            --min-instances=0 \
-            --min=0 \
-            --max=2 \
-            --service-account gwx-cloudrun-sa-01@gwx-internship-01.iam.gserviceaccount.com 
+#           gcloud run deploy $SERVICE_NAME \
+#             --image $REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE_NAME:latest \
+#             --region $REGION \
+#             --allow-unauthenticated \
+#             --project=$PROJECT_ID \
+#             --platform=managed \
+#             --port=8002 \
+#             --max-instances=2 \
+#             --min-instances=0 \
+#             --min=0 \
+#             --max=2 \
+#             --service-account gwx-cloudrun-sa-01@gwx-internship-01.iam.gserviceaccount.com 
