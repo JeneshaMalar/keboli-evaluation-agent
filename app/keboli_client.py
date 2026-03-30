@@ -34,10 +34,11 @@ class KeboliClient:
         """
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{self.base_url}/evaluation/transcript/{session_id}"
+                f"{self.base_url}/livekit/transcript/{session_id}"
             )
             response.raise_for_status()
-            return response.json() 
+            data = response.json()
+            return data.get("full_transcript", [])
 
     async def get_session_details(self, session_id: str) -> dict[str, Any]:
         """Fetch the session details for a given session ID from the backend.
@@ -53,7 +54,7 @@ class KeboliClient:
         """
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"{self.base_url}/evaluation/session/{session_id}"
+                f"{self.base_url}/livekit/session/{session_id}"
             )
             response.raise_for_status()
             return response.json()  
@@ -75,7 +76,7 @@ class KeboliClient:
         """
         async with httpx.AsyncClient() as client:
             response = await client.post(
-                f"{self.base_url}/evaluation/report/{session_id}",
+                f"{self.base_url}/evaluation/{session_id}",
                 json=evaluation_data,
             )
             response.raise_for_status()
@@ -101,8 +102,16 @@ class KeboliClient:
                 )
                 response.raise_for_status()
                 return response.json()  
-            except Exception as e:
-                logger.error("Failed to post log to backend: %s", e)
+            except httpx.HTTPStatusError as e:
+                response_text = ""
+                try:
+                    response_text = e.response.text
+                except Exception:
+                    pass
+                logger.error("Failed to post log to backend (Status %d): %s", e.response.status_code, response_text)
+                return None
+            except httpx.HTTPError as e:
+                logger.exception("Failed to post log to backend: %s", e)
                 return None
 
 

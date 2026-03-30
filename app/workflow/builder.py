@@ -1,3 +1,4 @@
+"""LangGraph workflow builder for the evaluation agent."""
 from langgraph.graph import END, StateGraph
 
 from ..nodes import (

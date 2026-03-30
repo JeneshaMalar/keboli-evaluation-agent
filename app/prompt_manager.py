@@ -1,3 +1,4 @@
+"""Prompt manager for generating and formatting LLM prompts."""
 import logging
 import os
 
@@ -10,32 +11,25 @@ if os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"):
     langfuse = Langfuse()
 
 def get_dynamic_prompt(prompt_name: str, fallback_content: str) -> str:
-    """Fetch prompt from Langfuse with a local fallback."""
+    """Fetch prompt from Langfuse with a local fallback.
+
+    Args:
+        prompt_name: The name of the prompt in Langfuse.
+        fallback_content: The local prompt string to use if fetching fails.
+
+    Returns:
+        The fetched prompt or the fallback content.
+    """
     if not langfuse:
         return fallback_content
     try:
         prompt_obj = langfuse.get_prompt(prompt_name)
         return prompt_obj.prompt
     except Exception as e:
-        logger.warning(f"Could not fetch prompt '{prompt_name}' from Langfuse: {e}. Using fallback.")
+        logger.warning("Error fetching Langfuse prompt '%s': %s. Using local fallback.", prompt_name, e)
         return fallback_content
 
-class PromptManager:
-    @staticmethod
-    def _get_and_format(prompt_name: str, fallback_template: str, **kwargs: str | float) -> str:
-        template = get_dynamic_prompt(prompt_name, fallback_template)
-
-        try:
-            for key, value in kwargs.items():
-                template = template.replace(f"{{{{{key}}}}}", str(value))
-            return template
-        except Exception as e:
-            print("PROMPT NAME:", prompt_name)
-            raise e
-
-    @staticmethod
-    def get_technical_prompt(transcript: str, skill_graph: str) -> str:
-        fallback = """
+_EVALUATION_TECHNICAL_PROMPT = """
 You are a Senior Technical Hiring Architect evaluating a candidate based on their interview transcript.
 Your evaluation must go beyond simple keyword matching — you must assess true competency,
 skill transferability, and depth of understanding using the comprehensive frameworks below.
@@ -567,18 +561,8 @@ Then fine-tune ±0.5 based on:
     "edge_cases_flagged": ["<skills or situations where classification was uncertain — flag for human review>"]
 }}
 """
-        return PromptManager._get_and_format(
-            "EVALUATION_TECHNICAL_PROMPT",
-            fallback,
-            transcript=transcript,
-            skill_graph=skill_graph
-        )
 
-    @staticmethod
-    def get_communication_prompt(transcript: str) -> str:
-        return PromptManager._get_and_format(
-            "EVALUATION_COMMUNICATION_PROMPT",
-            """
+_EVALUATION_COMMUNICATION_PROMPT = """
 You are an expert HR communication and behavioral assessor. Evaluate the candidate's communication
 clarity and confidence based ONLY on explicit evidence from the transcript.
 
@@ -720,15 +704,9 @@ Calculate hedging_ratio = hedging_count / (hedging_count + assertive_count)
     "uncertainty_count": <number of times candidate expressed uncertainty>,
     "sentence_structure_notes": "<analysis of sentence quality, completeness, and logical flow>"
 }
-""",
-            transcript=transcript
-        )
+"""
 
-    @staticmethod
-    def get_cultural_fit_prompt(transcript: str, job_description: str = "") -> str:
-        return PromptManager._get_and_format(
-            "EVALUATION_CULTURAL_FIT_PROMPT",
-            """
+_EVALUATION_CULTURAL_FIT_PROMPT = """
 You are a company culture specialist and behavioral interview assessor. Evaluate the candidate's
 cultural alignment using a structured Behavioral Rubric, based ONLY on evidence from the transcript.
 
@@ -876,24 +854,9 @@ Keywords: "honestly", "transparent", "I don't know but", "the right thing to do"
     "star_stories_detected": <integer count of STAR-method stories found>,
     "dimension_summary": "<brief summary of strongest and weakest cultural dimensions>"
 }}
-""",
-            transcript=transcript,
-            job_description=job_description if job_description else "Not provided — use general professional values"
-        )
+"""
 
-    @staticmethod
-    def get_final_synthesis_prompt(
-        tech: str,
-        comm: str,
-        culture: str,
-        transcript: str,
-        total_score: float,
-        coverage_ratio: float,
-        passing_score: float
-    ) -> str:
-        return PromptManager._get_and_format(
-            "EVALUATION_FINAL_SYNTHESIS_PROMPT",
-            """
+_EVALUATION_FINAL_SYNTHESIS_PROMPT = """
 You are a strict but fair hiring decision maker. Your recommendation MUST align with the numeric evidence.
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -995,7 +958,66 @@ If ANY of the above is NO → decision must be REJECT.
         "all_conditions_met": <true|false|null>
     }}
 }}
-""",
+"""
+
+class PromptManager:
+    """Manager for retrieving, formatting, and falling back on prompt templates."""
+    @staticmethod
+    def _get_and_format(prompt_name: str, fallback_template: str, **kwargs: str | float) -> str:
+        template = get_dynamic_prompt(prompt_name, fallback_template)
+
+        try:
+            for key, value in kwargs.items():
+                template = template.replace(f"{{{{{key}}}}}", str(value))
+            return template
+        except (ValueError, KeyError) as e:
+            logger.error("Prompt formatting failed for %s", prompt_name, exc_info=True)
+            raise e
+
+    @staticmethod
+    def get_technical_prompt(transcript: str, skill_graph: str) -> str:
+        """Generate the technical evaluation prompt."""
+        fallback = _EVALUATION_TECHNICAL_PROMPT
+        return PromptManager._get_and_format(
+            "EVALUATION_TECHNICAL_PROMPT",
+            fallback,
+            transcript=transcript,
+            skill_graph=skill_graph
+        )
+
+    @staticmethod
+    def get_communication_prompt(transcript: str) -> str:
+        """Generate the communication evaluation prompt."""
+        return PromptManager._get_and_format(
+            "EVALUATION_COMMUNICATION_PROMPT",
+            _EVALUATION_COMMUNICATION_PROMPT,
+            transcript=transcript
+        )
+
+    @staticmethod
+    def get_cultural_fit_prompt(transcript: str, job_description: str = "") -> str:
+        """Generate the cultural fit evaluation prompt."""
+        return PromptManager._get_and_format(
+            "EVALUATION_CULTURAL_FIT_PROMPT",
+            _EVALUATION_CULTURAL_FIT_PROMPT,
+            transcript=transcript,
+            job_description=job_description if job_description else "Not provided — use general professional values"
+        )
+
+    @staticmethod
+    def get_final_synthesis_prompt(
+        tech: str,
+        comm: str,
+        culture: str,
+        transcript: str,
+        total_score: float,
+        coverage_ratio: float,
+        passing_score: float
+    ) -> str:
+        """Generate the final synthesis evaluation prompt."""
+        return PromptManager._get_and_format(
+            "EVALUATION_FINAL_SYNTHESIS_PROMPT",
+            _EVALUATION_FINAL_SYNTHESIS_PROMPT,
             tech=tech,
             comm=comm,
             culture=culture,
