@@ -114,7 +114,7 @@ async def health_check() -> JSONResponse:
                     services.keboli_backend_connectivity = (
                         f"unhealthy_status_{response.status_code}"
                     )
-        except Exception as e:
+        except (httpx.HTTPError, httpx.TimeoutException) as e:
             services.keboli_backend_connectivity = f"connection_failed: {e!s}"
 
         if evaluation_app is not None:
@@ -137,6 +137,7 @@ async def health_check() -> JSONResponse:
         )
 
     except Exception as e:
+        logger.exception("Health check failed unexpectedly")
         return JSONResponse(
             status_code=503,
             content={
@@ -145,6 +146,70 @@ async def health_check() -> JSONResponse:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
+
+
+def _build_initial_state(
+    session_id: str, transcript_data: list[dict[str, str]], session_details: dict[str, Any]
+) -> EvaluationState:
+    """Build the initial state for the evaluation graph."""
+    return {
+        "session_id": session_id,
+        "transcript": transcript_data,
+        "assessment_details": session_details,
+        "technical_analysis": None,
+        "communication_analysis": None,
+        "cultural_analysis": None,
+        "skill_scores": {},
+        "per_skill_scores": {},
+        "scores": {},
+        "summary": None,
+        "explanation": None,
+        "recommendation": None,
+        "tie_breaker_subscore": 0.0,
+        "error": None,
+    }
+
+
+def _build_evaluation_payload(result: dict[str, Any], recommendation: str) -> dict[str, object]:
+    """Construct the evaluation payload for the backend API."""
+    scale = 20.0
+    per_skill_scores: dict[str, float] = result.get("per_skill_scores", {})
+
+    scores: dict[str, float] = result.get("scores", {})
+    comm_sub_scores: dict[str, Any] = scores.get("communication_sub_scores", {})  
+    behavioral_rubric: dict[str, Any] = scores.get("behavioral_rubric", {})  
+
+    return {
+        "technical_score": float(scores.get("technical", 0)) * scale,
+        "communication_score": float(scores.get("communication", 0)) * scale,
+        "confidence_score": float(scores.get("confidence", 0)) * scale,
+        "cultural_alignment_score": float(scores.get("cultural_fit", 0)) * scale,
+        "total_score": float(scores.get("total", 0)) * scale,
+        "score_breakdown": {
+            "technical": scores.get("technical", 0),
+            "communication": scores.get("communication", 0),
+            "confidence": scores.get("confidence", 0),
+            "cultural_fit": scores.get("cultural_fit", 0),
+            "tie_breaker": float(result.get("tie_breaker_subscore", 0.0)),
+            "skill_evaluations": result.get("skill_scores", {}),
+            "per_skill_scores": per_skill_scores,
+            "communication_details": comm_sub_scores,
+            "behavioral_rubric": behavioral_rubric,
+        },
+        "ai_summary": result.get("summary"),
+        "ai_explanation": result.get("explanation"),
+        "hiring_recommendation": recommendation,
+        "admin_recommendation": None,
+        "admin_notes": None,
+        "is_tie_winner": False,
+        "detailed_analysis": {
+            "skill_scores": result.get("skill_scores", {}),
+            "per_skill_scores": per_skill_scores,
+            "technical_analysis": result.get("technical_analysis"),
+            "communication_analysis": result.get("communication_analysis"),
+            "cultural_analysis": result.get("cultural_analysis"),
+        },
+    }
 
 
 @app.post(
@@ -170,6 +235,7 @@ async def evaluate_candidate(session_id: str) -> EvaluationResponse:
         EvaluationError: If the LangGraph analysis fails.
         ExternalServiceError: If there is an error communicating with the backend.
     """
+    session_id = session_id.strip()
     try:
         await keboli_client.post_log(
             {
@@ -183,24 +249,10 @@ async def evaluate_candidate(session_id: str) -> EvaluationResponse:
         )
 
         transcript_data = await keboli_client.get_transcript(session_id)
-        session_details = await keboli_client.get_session_details(session_id)
+        session_response = await keboli_client.get_session_details(session_id)
+        assessment_details = session_response.get("assessment_details", {})
 
-        initial_state: EvaluationState = {
-            "session_id": session_id,
-            "transcript": transcript_data,
-            "assessment_details": session_details,
-            "technical_analysis": None,
-            "communication_analysis": None,
-            "cultural_analysis": None,
-            "skill_scores": {},
-            "per_skill_scores": {},
-            "scores": {},
-            "summary": None,
-            "explanation": None,
-            "recommendation": None,
-            "tie_breaker_subscore": 0.0,
-            "error": None,
-        }
+        initial_state: EvaluationState = _build_initial_state(session_id, transcript_data, assessment_details)
 
         config: dict[str, object] = {"run_name": f"evaluation-{session_id}"}
         if langfuse_handler:
@@ -215,46 +267,10 @@ async def evaluate_candidate(session_id: str) -> EvaluationResponse:
             )
 
         recommendation = result.get("recommendation", "REJECT").lower()
-
         scale = 20.0
-
-        per_skill_scores: dict[str, float] = result.get("per_skill_scores", {})
-
         scores: dict[str, float] = result.get("scores", {})
-        comm_sub_scores: dict[str, Any] = scores.get("communication_sub_scores", {})  
-        behavioral_rubric: dict[str, Any] = scores.get("behavioral_rubric", {})  
 
-        evaluation_payload: dict[str, object] = {
-            "technical_score": float(scores.get("technical", 0)) * scale,
-            "communication_score": float(scores.get("communication", 0)) * scale,
-            "confidence_score": float(scores.get("confidence", 0)) * scale,
-            "cultural_alignment_score": float(scores.get("cultural_fit", 0)) * scale,
-            "total_score": float(scores.get("total", 0)) * scale,
-            "score_breakdown": {
-                "technical": scores.get("technical", 0),
-                "communication": scores.get("communication", 0),
-                "confidence": scores.get("confidence", 0),
-                "cultural_fit": scores.get("cultural_fit", 0),
-                "tie_breaker": float(result.get("tie_breaker_subscore", 0.0)),
-                "skill_evaluations": result.get("skill_scores", {}),
-                "per_skill_scores": per_skill_scores,
-                "communication_details": comm_sub_scores,
-                "behavioral_rubric": behavioral_rubric,
-            },
-            "ai_summary": result["summary"],
-            "ai_explanation": result["explanation"],
-            "hiring_recommendation": recommendation,
-            "admin_recommendation": None,
-            "admin_notes": None,
-            "is_tie_winner": False,
-            "detailed_analysis": {
-                "skill_scores": result.get("skill_scores", {}),
-                "per_skill_scores": per_skill_scores,
-                "technical_analysis": result.get("technical_analysis"),
-                "communication_analysis": result.get("communication_analysis"),
-                "cultural_analysis": result.get("cultural_analysis"),
-            },
-        }
+        evaluation_payload: dict[str, object] = _build_evaluation_payload(result, recommendation)
 
         await keboli_client.post_log(
             {

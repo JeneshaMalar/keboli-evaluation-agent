@@ -1,5 +1,31 @@
+"""Utilities for processing and normalizing technical skill graphs."""
 from typing import Any
 
+
+def _parse_skills_list(skills_list: list[Any]) -> dict[str, float]:
+    result = {}
+    for s in skills_list:
+        if isinstance(s, dict):
+            name = s.get("name", "")
+            weight = s.get("weightage", s.get("weight", 0.0))
+            if name:
+                try:
+                    result[name] = float(weight)
+                except (ValueError, TypeError):
+                    result[name] = 0.0
+    return result
+
+def _parse_flat_dict(raw_dict: dict[str, Any]) -> dict[str, float]:
+    result = {}
+    for key, val in raw_dict.items():
+        try:
+            w = float(str(val).replace('%', ''))
+            if w > 1.0:
+                w = w / 100.0
+            result[key] = w
+        except (ValueError, TypeError):
+            continue
+    return result
 
 def parse_skill_graph(raw_skill_graph: Any) -> dict[str, float]:
     """
@@ -9,33 +35,12 @@ def parse_skill_graph(raw_skill_graph: Any) -> dict[str, float]:
     """
     if not raw_skill_graph:
         return {}
-
-    if isinstance(raw_skill_graph, dict) and "skills" in raw_skill_graph:
-        skills_list = raw_skill_graph["skills"]
-        if isinstance(skills_list, list):
-            result = {}
-            for s in skills_list:
-                name = s.get("name", "")
-                weight = s.get("weightage", s.get("weight", 0.0))
-                if name:
-                    try:
-                        result[name] = float(weight)
-                    except (ValueError, TypeError):
-                        result[name] = 0.0
-            return result
-
+    
     if isinstance(raw_skill_graph, dict):
-        result = {}
-        for key, val in raw_skill_graph.items():
-            try:
-                w = float(str(val).replace('%', ''))
-                if w > 1.0:
-                    w = w / 100.0
-                result[key] = w
-            except (ValueError, TypeError):
-                continue
-        return result
-
+        if "skills" in raw_skill_graph and isinstance(raw_skill_graph["skills"], list):
+            return _parse_skills_list(raw_skill_graph["skills"])
+        return _parse_flat_dict(raw_skill_graph)
+    
     return {}
 
 

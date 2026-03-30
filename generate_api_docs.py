@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 
@@ -58,5 +59,5 @@ for path, methods in paths.items():
 
 # Write output file
 output_file.write_text("\n".join(md), encoding="utf-8")
-print(f"✅ Documentation generated at {output_file}")
+logging.getLogger(__name__).info(f"✅ Documentation generated at {output_file}")
 

@@ -9,12 +9,12 @@ class Settings(BaseSettings):
     All values are loaded from environment variables or a `.env` file.
     """
 
-    MAIN_BACKEND_URL: str = "http://localhost:8000/api"
+    MAIN_BACKEND_URL: str
 
     GROQ_API_KEY: str | None = None
     MODEL_NAME: str = "llama-3.3-70b-versatile"
 
-    EVALUATION_AGENT_SECRET: str | None = "REPLACE_THIS_SECRET_IN_PROD"
+    EVALUATION_AGENT_SECRET: str | None = None
 
     model_config = SettingsConfigDict(env_file="app/.env", extra="forbid")
 

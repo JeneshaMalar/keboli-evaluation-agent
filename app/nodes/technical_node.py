@@ -1,3 +1,4 @@
+"""Node for evaluating candidate technical competence and skills."""
 import json
 from typing import Any
 

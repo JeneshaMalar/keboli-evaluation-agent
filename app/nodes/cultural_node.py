@@ -1,3 +1,4 @@
+"""Node for evaluating candidate cultural and behavioral fit."""
 import json
 from typing import Any
 

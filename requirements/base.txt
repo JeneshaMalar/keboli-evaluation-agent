@@ -1,0 +1,9 @@
+fastapi>=0.135.0
+httpx>=0.28.1
+langchain-groq>=1.1.2
+langgraph>=1.0.10
+pydantic-settings>=2.13.1
+SQLAlchemy>=2.0
+uvicorn>=0.41.0
+langfuse>=2.0.0
+langchain>=0.3.0

@@ -1,5 +1,7 @@
-from langchain_core.messages import HumanMessage, SystemMessage
+"""Node for calculating the final numeric scores and hiring recommendation."""
+
 from typing import Any
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..llm import get_llm
 from ..prompt_manager import PromptManager
@@ -8,28 +10,12 @@ from ..utils.json_utils import extract_json
 from ..utils.skill_utils import find_skill_score, parse_skill_graph
 
 
-async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:  
-    """Node responsible for calculating the final scores and recommendation for the candidate based on the technical, communication, and cultural analyses, as well as the original skill graph and interview transcript."""
-    raw_skill_graph = state['assessment_details'].get('skill_graph', {})
-    passing_val = state['assessment_details'].get('passing_score', 60)
-    passing_score = float(passing_val) if isinstance(passing_val, (int, float, str)) else 60.0
-
-    parsed_skills = parse_skill_graph(raw_skill_graph)
-    skill_evaluations = state.get('skill_scores', {})
-
-    tech_data = extract_json(state.get('technical_analysis') or '{}') or {}
-    interview_validity = tech_data.get('interview_validity', 'VALID')
-    is_invalid_interview = (interview_validity == 'INVALID_INTERVIEW')
-
-
-
-
+def _calculate_technical_scores(parsed_skills: dict[str, float], skill_evaluations: dict[str, Any]) -> tuple[float, float, list[str], list[str], dict[str, float]]:
     weighted_tech_score = 0.0
     evaluated_weight_sum = 0.0
     total_weight_sum = 0.0
     matched_skills = []
     unmatched_skills = []
-
     per_skill_scores = {}
 
     for skill_name, weight in parsed_skills.items():
@@ -61,23 +47,17 @@ async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:
             unmatched_skills.append(skill_name)
             per_skill_scores[skill_name] = 0.0
 
-
-
-    if evaluated_weight_sum > 0:
-        normalized_tech_score = weighted_tech_score / evaluated_weight_sum
-    else:
-        normalized_tech_score = 0.0
-
+    normalized_tech_score = weighted_tech_score / evaluated_weight_sum if evaluated_weight_sum > 0 else 0.0
     coverage_ratio = evaluated_weight_sum / total_weight_sum if total_weight_sum > 0 else 0.0
 
     coverage_factor = 0.85 + (0.15 * coverage_ratio)
     final_technical_score = normalized_tech_score * coverage_factor
     final_technical_score = min(5.0, max(0.0, final_technical_score))
+    
+    return final_technical_score, coverage_ratio, matched_skills, unmatched_skills, per_skill_scores
 
 
-    comm_data = extract_json(state.get('communication_analysis') or "{}") or {}
-    cult_data = extract_json(state.get('cultural_analysis') or "{}") or {}
-
+def _calculate_communication_scores(comm_data: dict[str, Any]) -> tuple[float, float]:
     try:
         clarity = float(comm_data.get('clarity_subscore', 0))
         articulation = float(comm_data.get('articulation_subscore', 0))
@@ -87,14 +67,12 @@ async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:
             comm_score = (clarity * 0.35) + (articulation * 0.35) + (structure * 0.30)
         else:
             comm_score = float(comm_data.get('communication_score', 0))
-
         comm_score = min(5.0, max(0.0, comm_score))
     except (ValueError, TypeError):
         comm_score = 0.0
 
     try:
         conf_score = float(comm_data.get('confidence_score', 0))
-
         hedging_ratio = comm_data.get('hedging_ratio')
         if hedging_ratio is not None:
             try:
@@ -114,11 +92,14 @@ async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:
         conf_score = min(5.0, max(0.0, conf_score))
     except (ValueError, TypeError):
         conf_score = 0.0
+        
+    return comm_score, conf_score
 
+
+def _calculate_cultural_score(cult_data: dict[str, Any]) -> float:
     try:
         rubric = cult_data.get('behavioral_rubric', {})
         if rubric and isinstance(rubric, dict):
-            dimension_scores = []
             dimension_weights = {
                 'ownership': 0.25,
                 'collaboration': 0.25,
@@ -134,11 +115,9 @@ async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:
                 dim_data = rubric.get(dim_name, {})
                 if isinstance(dim_data, dict) and dim_data.get('score') is not None:
                     try:
-                        dim_score = float(dim_data['score'])
-                        dim_score = min(5.0, max(0.0, dim_score))
+                        dim_score = min(5.0, max(0.0, float(dim_data['score'])))
                         weighted_cult += dim_score * dim_weight
                         total_cult_weight += dim_weight
-                        dimension_scores.append(f"{dim_name}: {dim_score}/5")
                     except (ValueError, TypeError):
                         continue
 
@@ -149,27 +128,36 @@ async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:
         else:
             cult_score = float(cult_data.get('cultural_fit_score', 0))
 
-        cult_score = min(5.0, max(0.0, cult_score))
+        return min(5.0, max(0.0, cult_score))
     except (ValueError, TypeError):
-        cult_score = 0.0
+        return 0.0
 
-    final_total_score = (
-        (final_technical_score * 0.60) +
-        (comm_score * 0.15) +
-        (conf_score * 0.15) +
-        (cult_score * 0.10)
-    )
-    final_total_score = min(5.0, max(0.0, final_total_score))
 
+async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:
+    """Calculate the final scores and recommendation for the candidate."""
+    raw_skill_graph = state['assessment_details'].get('skill_graph', {})
+    passing_val = state['assessment_details'].get('passing_score', 60)
+    passing_score = float(passing_val) if isinstance(passing_val, (int, float, str)) else 60.0
+
+    parsed_skills = parse_skill_graph(raw_skill_graph)
+    skill_evaluations = state.get('skill_scores', {})
+
+    tech_data = extract_json(state.get('technical_analysis') or '{}') or {}
+    interview_validity = tech_data.get('interview_validity', 'VALID')
+    is_invalid_interview = (interview_validity == 'INVALID_INTERVIEW')
+
+    final_technical_score, coverage_ratio, _, _, per_skill_scores = _calculate_technical_scores(parsed_skills, skill_evaluations)
+
+    comm_data = extract_json(state.get('communication_analysis') or "{}") or {}
+    cult_data = extract_json(state.get('cultural_analysis') or "{}") or {}
+
+    comm_score, conf_score = _calculate_communication_scores(comm_data)
+    cult_score = _calculate_cultural_score(cult_data)
+
+    final_total_score = min(5.0, max(0.0, (final_technical_score * 0.60) + (comm_score * 0.15) + (conf_score * 0.15) + (cult_score * 0.10)))
     total_score_100 = final_total_score * 20.0
 
-
-
-
-    transcript_text = "\n".join(
-        [f"{t.get('role','unknown')}: {t.get('text','')}" for t in state.get("transcript", [])]
-    )
-
+    transcript_text = "\n".join([f"{t.get('role','unknown')}: {t.get('text','')}" for t in state.get("transcript", [])])
     llm = get_llm(temperature=0)
 
     synthesis_total = 0.0 if is_invalid_interview else round(total_score_100, 1)
@@ -194,14 +182,8 @@ async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:
     llm_recommendation = data.get("recommendation", "REJECT").upper()
 
     if is_invalid_interview:
-        final_recommendation = "REJECT"
-        final_technical_score = 0.0
-        comm_score = 0.0
-        conf_score = 0.0
-        cult_score = 0.0
-        final_total_score = 0.0
-        total_score_100 = 0.0
-        coverage_ratio = 0.0
+        final_recommendation, final_technical_score, comm_score, conf_score, cult_score = "REJECT", 0.0, 0.0, 0.0, 0.0
+        final_total_score, total_score_100, coverage_ratio = 0.0, 0.0, 0.0
         per_skill_scores = dict.fromkeys(per_skill_scores, 0.0)
     elif total_score_100 < passing_score or coverage_ratio < 0.5:
         final_recommendation = "REJECT"
@@ -213,38 +195,14 @@ async def final_scoring_node(state: EvaluationState) -> dict[str, Any]:
         else:
             final_recommendation = llm_recommendation
 
-
-    comm_sub_scores = {}
-    if comm_data:
-        comm_sub_scores = {
-            "clarity": round(float(comm_data.get('clarity_subscore', comm_score)), 2),
-            "articulation": round(float(comm_data.get('articulation_subscore', comm_score)), 2),
-            "structure": round(float(comm_data.get('structure_subscore', comm_score)), 2),
-            "filler_word_count": comm_data.get('filler_word_count', 0),
-            "hedging_ratio": comm_data.get('hedging_ratio', None),
-            "hedging_count": comm_data.get('hedging_count', 0),
-            "assertive_count": comm_data.get('assertive_count', 0),
-        }
-
-    behavioral_summary = {}
-    if cult_data and 'behavioral_rubric' in cult_data:
-        rubric = cult_data['behavioral_rubric']
-        for dim_name in ['ownership', 'collaboration', 'growth_mindset', 'innovation', 'integrity']:
-            dim_data = rubric.get(dim_name, {})
-            if isinstance(dim_data, dict):
-                behavioral_summary[dim_name] = round(float(dim_data.get('score', 0)), 2)
+    comm_sub_scores = {"clarity": round(float(comm_data.get('clarity_subscore', comm_score)), 2), "articulation": round(float(comm_data.get('articulation_subscore', comm_score)), 2), "structure": round(float(comm_data.get('structure_subscore', comm_score)), 2), "filler_word_count": comm_data.get('filler_word_count', 0), "hedging_ratio": comm_data.get('hedging_ratio', None), "hedging_count": comm_data.get('hedging_count', 0), "assertive_count": comm_data.get('assertive_count', 0)} if comm_data else {}
+    behavioral_summary = {dim: round(float(cult_data.get('behavioral_rubric', {}).get(dim, {}).get('score', 0)), 2) for dim in ['ownership', 'collaboration', 'growth_mindset', 'innovation', 'integrity'] if isinstance(cult_data.get('behavioral_rubric', {}).get(dim), dict)} if cult_data and 'behavioral_rubric' in cult_data else {}
 
     return {
         "scores": {
-            "technical": round(final_technical_score, 2),
-            "communication": round(comm_score, 2),
-            "confidence": round(conf_score, 2),
-            "cultural_fit": round(cult_score, 2),
-            "total": round(final_total_score, 2),
-            "coverage_ratio": round(coverage_ratio, 2),
-            "total_score_100": round(total_score_100, 2),
-            "communication_sub_scores": comm_sub_scores,
-            "behavioral_rubric": behavioral_summary,
+            "technical": round(final_technical_score, 2), "communication": round(comm_score, 2), "confidence": round(conf_score, 2), "cultural_fit": round(cult_score, 2),
+            "total": round(final_total_score, 2), "coverage_ratio": round(coverage_ratio, 2), "total_score_100": round(total_score_100, 2),
+            "communication_sub_scores": comm_sub_scores, "behavioral_rubric": behavioral_summary
         },
         "per_skill_scores": per_skill_scores,
         "summary": data.get("summary", ""),
